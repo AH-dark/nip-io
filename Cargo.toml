@@ -3,6 +3,9 @@ name = "nip-io"
 version = "1.0.0"
 edition = "2021"
 authors = ["AH-dark <ahdark0428@gmail.com>"]
+readme = "README.md"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/AH-dark/ns-ip.git"
 
 [features]
 default = []
