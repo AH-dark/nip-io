@@ -1,5 +1,5 @@
 [package]
-name = "nip-io"
+name = "ns-ip"
 version = "1.0.0"
 edition = "2021"
 authors = ["AH-dark <ahdark0428@gmail.com>"]
