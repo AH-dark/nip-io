@@ -41,77 +41,6 @@ impl DynamicAuthority {
             host_master,
         }
     }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument)]
-    fn parse_ipv4_by_split(parts: &[&str]) -> Result<Ipv4Addr, Error> {
-        if parts.len() < 4 {
-            return Err(Error::UnableToParse);
-        }
-
-        let len = parts.len();
-        let ip = Ipv4Addr::new(
-            parts[len - 4].parse()?,
-            parts[len - 3].parse()?,
-            parts[len - 2].parse()?,
-            parts[len - 1].parse()?,
-        );
-
-        Ok(ip)
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument)]
-    fn parse_ipv4_from_name(lower_name: &LowerName) -> Result<Ipv4Addr, Error> {
-        let name = lower_name.into_name()?;
-
-        let labels = {
-            let mut labels = name.into_iter().rev().collect::<Vec<_>>();
-            if labels.len() < 3 {
-                log::error!("Invalid name: {:?}", name);
-                return Err(Error::IpNotFound);
-            }
-            labels.drain(0..2); // remove the first two labels which is the root domain
-            labels
-        };
-
-        #[cfg(feature = "tracing")]
-        tracing::debug!("Labels: {:?}", labels);
-
-        if labels.len() >= 4 {
-            let mut parts = Vec::new();
-            for key in labels.iter().rev() {
-                parts.push(from_utf8(key)?);
-            }
-
-            if let Ok(ip) = Self::parse_ipv4_by_split(&parts).map_err(|e| {
-                #[cfg(feature = "tracing")]
-                tracing::error!("Unable to parse: {:?}", e);
-                e
-            }) {
-                return Ok(ip);
-            }
-        }
-
-        // check if the third label is an ip address
-        {
-            let s = from_utf8(labels[0])?;
-
-            // match xxx-1-2-3-4
-            if let Ok(ip) = Self::parse_ipv4_by_split(&s.split('-').collect::<Vec<_>>()) {
-                return Ok(ip);
-            }
-
-            // match 4-3-2-1-xxx
-            if let Ok(ip) = Self::parse_ipv4_by_split(&s.split('-').rev().collect::<Vec<_>>()) {
-                return Ok(ip);
-            }
-
-            if s == "local" || s == "localhost" {
-                return Ok(Ipv4Addr::new(127, 0, 0, 1));
-            }
-        }
-
-        Err(Error::IpNotFound)
-    }
 }
 
 #[async_trait::async_trait]
@@ -150,7 +79,7 @@ impl AuthorityObject for DynamicAuthority {
     ) -> Result<Box<dyn LookupObject>, LookupError> {
         match rtype {
             RecordType::A => {
-                if let Ok(ip) = Self::parse_ipv4_from_name(name).map_err(|e| {
+                if let Ok(ip) = parse_ipv4_from_name(name).map_err(|e| {
                     #[cfg(feature = "tracing")]
                     tracing::error!("Unable to parse: {:?}", e);
                     e
@@ -207,5 +136,113 @@ impl AuthorityObject for DynamicAuthority {
         _lookup_options: LookupOptions,
     ) -> Result<Box<dyn LookupObject>, LookupError> {
         todo!()
+    }
+}
+
+#[cfg_attr(feature = "tracing", tracing::instrument)]
+fn parse_ipv4_by_split(parts: &[&str]) -> Result<Ipv4Addr, Error> {
+    if parts.len() < 4 {
+        return Err(Error::UnableToParse);
+    }
+
+    let len = parts.len();
+    let ip = Ipv4Addr::new(
+        parts[len - 4].parse()?,
+        parts[len - 3].parse()?,
+        parts[len - 2].parse()?,
+        parts[len - 1].parse()?,
+    );
+
+    Ok(ip)
+}
+
+#[cfg_attr(feature = "tracing", tracing::instrument)]
+fn parse_ipv4_from_name(lower_name: &LowerName) -> Result<Ipv4Addr, Error> {
+    let name = lower_name.into_name()?;
+
+    let labels = {
+        let mut labels = name.into_iter().rev().collect::<Vec<_>>();
+        if labels.len() < 3 {
+            log::error!("Invalid name: {:?}", name);
+            return Err(Error::IpNotFound);
+        }
+        labels.drain(0..2); // remove the first two labels which is the root domain
+        labels
+    };
+
+    #[cfg(feature = "tracing")]
+    tracing::debug!("Labels: {:?}", labels);
+
+    if labels.len() >= 4 {
+        let mut parts = Vec::new();
+        for key in labels.iter().rev() {
+            parts.push(from_utf8(key)?);
+        }
+
+        if let Ok(ip) = parse_ipv4_by_split(&parts).map_err(|e| {
+            #[cfg(feature = "tracing")]
+            tracing::error!("Unable to parse: {:?}", e);
+            e
+        }) {
+            return Ok(ip);
+        }
+    }
+
+    // check if the third label is an ip address
+    {
+        let s = from_utf8(labels[0])?;
+
+        // match xxx-1-2-3-4
+        if let Ok(ip) = parse_ipv4_by_split(&s.split('-').collect::<Vec<_>>()) {
+            return Ok(ip);
+        }
+
+        // match 4-3-2-1-xxx
+        if let Ok(ip) = parse_ipv4_by_split(&s.split('-').rev().collect::<Vec<_>>()) {
+            return Ok(ip);
+        }
+
+        if s == "local" || s == "localhost" {
+            return Ok(Ipv4Addr::new(127, 0, 0, 1));
+        }
+    }
+
+    Err(Error::IpNotFound)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use super::*;
+
+    #[test]
+    fn test_parse_ipv4_by_split() {
+        let parts = ["192", "168", "1", "1"];
+        let ip = parse_ipv4_by_split(&parts).unwrap();
+        assert_eq!(ip, Ipv4Addr::new(192, 168, 1, 1));
+
+        let parts = ["app", "192", "168", "1", "1"];
+        let ip = parse_ipv4_by_split(&parts).unwrap();
+        assert_eq!(ip, Ipv4Addr::new(192, 168, 1, 1));
+
+        let parts = ["192", "168", "1"];
+        let ip = parse_ipv4_by_split(&parts);
+        assert!(ip.is_err());
+    }
+
+    #[test]
+    fn test_parse_ipv4_from_name() {
+        let name = LowerName::from_str("app-1-2-3-4.ip.local").unwrap();
+        let ip = parse_ipv4_from_name(&name).unwrap();
+        assert_eq!(ip, Ipv4Addr::new(1, 2, 3, 4));
+
+        let name = LowerName::from_str("app-4-3-2-1.ip.local").unwrap();
+        let ip = parse_ipv4_from_name(&name).unwrap();
+        assert_eq!(ip, Ipv4Addr::new(4, 3, 2, 1));
+
+        let name = LowerName::from_str("app.192.168.1.1.ip.local").unwrap();
+        let ip = parse_ipv4_from_name(&name).unwrap();
+        assert_eq!(ip, Ipv4Addr::new(192, 168, 1, 1));
     }
 }
