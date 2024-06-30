@@ -7,13 +7,15 @@ use trust_dns_server::authority::{
     MessageRequest, UpdateResult, ZoneType,
 };
 use trust_dns_server::proto::op::ResponseCode;
-use trust_dns_server::proto::rr::{IntoName, LowerName, RData, RecordSet, RecordType};
-use trust_dns_server::proto::rr::rdata::A;
+use trust_dns_server::proto::rr::{IntoName, LowerName, Name, RData, RecordSet, RecordType};
+use trust_dns_server::proto::rr::rdata::{A, SOA};
 use trust_dns_server::server::RequestInfo;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DynamicAuthority {
     root: LowerName,
+    ns: Name,
+    host_master: Name,
 }
 
 #[derive(thiserror::Error, Debug, Clone)]
@@ -32,8 +34,12 @@ pub enum Error {
 
 impl DynamicAuthority {
     #[cfg_attr(feature = "tracing", tracing::instrument)]
-    pub fn new(root: LowerName) -> Self {
-        DynamicAuthority { root }
+    pub fn new(root: LowerName, ns: Name, host_master: Name) -> Self {
+        DynamicAuthority {
+            root,
+            ns,
+            host_master,
+        }
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument)]
@@ -157,6 +163,23 @@ impl AuthorityObject for DynamicAuthority {
                         None,
                     )));
                 }
+            }
+            RecordType::SOA => {
+                let mut record_set =
+                    RecordSet::new(&name.into_name().unwrap(), RecordType::SOA, 300);
+                record_set.new_record(&RData::SOA(SOA::new(
+                    self.ns.clone(),
+                    self.host_master.clone(),
+                    1,
+                    3600,
+                    1800,
+                    1209600,
+                    86400,
+                )));
+                return Ok(Box::new(AuthLookup::answers(
+                    LookupRecords::new(lookup_options, Arc::new(record_set)),
+                    None,
+                )));
             }
             _ => {
                 log::debug!("Unsupported record type: {:?}", rtype)
