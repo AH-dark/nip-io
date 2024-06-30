@@ -1,0 +1,21 @@
+[package]
+name = "nip-io"
+version = "1.0.0"
+edition = "2021"
+authors = ["AH-dark <ahdark0428@gmail.com>"]
+
+[features]
+default = []
+
+tracing = ["dep:tracing", "dep:tracing-subscriber", "tokio/tracing"]
+
+[dependencies]
+tokio = { version = "1.38.0", features = ["macros", "rt-multi-thread", "net"] }
+trust-dns-server = "0.23"
+async-trait = "0.1"
+thiserror = "1.0"
+log = "0.4"
+pretty_env_logger = "0.5"
+
+tracing = { version = "0.1", optional = true }
+tracing-subscriber = { version = "0.3", optional = true, features = ["env-filter"] }
